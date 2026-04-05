@@ -1,0 +1,19 @@
+{
+  "name": "assignment10",
+  "version": "1.0.0",
+  "description": "Assignment 10 - Node.js + MySQL Web App",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [],
+  "author": "Nikhil Kumar",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "body-parser": "^2.2.2",
+    "express": "^5.2.1",
+    "express-session": "^1.19.0",
+    "mysql2": "^3.20.0"
+  }
+}

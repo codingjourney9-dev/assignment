@@ -1,0 +1,73 @@
+DEPLOYMENT GUIDE — Railway.app (Free Node.js + MySQL Hosting)
+=============================================================
+
+WHAT YOU NEED:
+- A GitHub account (free) → https://github.com
+- A Railway account (free) → https://railway.app
+
+═══════════════════════════════════════════
+STEP 1 — Upload files to GitHub
+═══════════════════════════════════════════
+
+1. Go to https://github.com → Login or Sign up
+2. Click the "+" button (top right) → "New repository"
+3. Name it: assignment10
+4. Keep it Public → Click "Create repository"
+5. On the next page, click "uploading an existing file"
+6. Drag and drop THESE 3 FILES from this ZIP:
+     ✅ index.js
+     ✅ package.json
+     ✅ .gitignore
+7. Click "Commit changes"
+
+═══════════════════════════════════════════
+STEP 2 — Deploy on Railway
+═══════════════════════════════════════════
+
+1. Go to https://railway.app
+2. Click "Login" → "Login with GitHub" (easiest)
+3. Click "New Project"
+4. Click "Deploy from GitHub repo"
+5. Select your "assignment10" repo
+6. Railway will start deploying — wait ~1 minute
+
+═══════════════════════════════════════════
+STEP 3 — Add MySQL Database
+═══════════════════════════════════════════
+
+1. In your Railway project, click "+ New"
+2. Click "Database" → "Add MySQL"
+3. Wait ~30 seconds for it to spin up
+4. Click on the MySQL service → go to "Variables" tab
+5. You will see: MYSQLHOST, MYSQLUSER, MYSQLPASSWORD, MYSQLDATABASE, MYSQLPORT
+   ✅ These are automatically shared with your app — NO changes needed!
+
+═══════════════════════════════════════════
+STEP 4 — Get your public URL
+═══════════════════════════════════════════
+
+1. Click on your Node.js service (assignment10)
+2. Go to "Settings" tab
+3. Under "Networking" → click "Generate Domain"
+4. You get a free URL like: assignment10-production.up.railway.app
+5. Open it in browser — your site is LIVE! 🎉
+
+═══════════════════════════════════════════
+TEST YOUR SITE
+═══════════════════════════════════════════
+
+✅ Homepage loads
+✅ Click Register → fill form → submit
+✅ Click Login → use: codingjourney9@gmail.com / abcd
+✅ After login, welcome message shows
+✅ Logout works
+✅ Open on mobile — responsive layout
+
+═══════════════════════════════════════════
+NOTES
+═══════════════════════════════════════════
+
+- Railway free tier gives you $5 credit/month — enough for this project
+- The database and users table are created automatically on first run
+- Seed user: codingjourney9@gmail.com / abcd
+- Footer: Made by Nikhil Kumar, 24U022005
