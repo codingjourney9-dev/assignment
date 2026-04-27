@@ -1,7 +1,7 @@
 {
-  "name": "assignment10",
+  "name": "assignment12",
   "version": "1.0.0",
-  "description": "Assignment 10 - Node.js + MySQL Web App",
+  "description": "Assignment 12 - Node.js + MySQL Web App with My Account feature",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
