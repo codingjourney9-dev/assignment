@@ -1,27 +1,33 @@
 <?php
 session_start();
 
-// ==========================================
-// 1. DATABASE CONNECTION & SETUP
-// ==========================================
-// Check for Railway environment variables, fallback to XAMPP defaults
-$host = getenv("MYSQLHOST") ?: "localhost";
-$user = getenv("MYSQLUSER") ?: "root";
-$pass = getenv("MYSQLPASSWORD") ?: "";
-$dbname = getenv("MYSQLDATABASE") ?: "assignment12";
-$port = getenv("MYSQLPORT") ?: 3306;
+// 1. Prevent modern PHP from crashing on DB errors (Prevents 502 Bad Gateway)
+mysqli_report(MYSQLI_REPORT_OFF); 
 
-// Connect to MySQL
+// ==========================================
+// 2. DATABASE CONNECTION & SETUP
+// ==========================================
+// Check multiple variable formats just in case Railway changed them
+$host = getenv("MYSQLHOST") ?: getenv("MYSQL_HOST") ?: "localhost";
+$user = getenv("MYSQLUSER") ?: getenv("MYSQL_USER") ?: "root";
+$pass = getenv("MYSQLPASSWORD") ?: getenv("MYSQL_PASSWORD") ?: "";
+$dbname = getenv("MYSQLDATABASE") ?: getenv("MYSQL_DATABASE") ?: "assignment12";
+$port = (int)(getenv("MYSQLPORT") ?: getenv("MYSQL_PORT") ?: 3306);
+
+// Attempt Connection
 $conn = @new mysqli($host, $user, $pass, $dbname, $port);
 
-// If database doesn't exist (e.g., first time running locally on XAMPP)
+// If it fails, print a beautiful error on the screen instead of crashing Railway
 if ($conn->connect_error) {
-    $conn = new mysqli($host, $user, $pass, "", $port);
-    $conn->query("CREATE DATABASE IF NOT EXISTS `$dbname`");
-    $conn->select_db($dbname);
+    die("<div style='padding:20px; background:#ffebee; border-left: 5px solid #c62828; color:#b71c1c; font-family:sans-serif; max-width: 600px; margin: 40px auto; border-radius: 8px;'>
+        <h2 style='margin-top:0;'>⚠️ Database Connection Failed</h2>
+        <p><strong>Error:</strong> " . htmlspecialchars($conn->connect_error) . "</p>
+        <p>Your web server is running perfectly, but it cannot log into the Railway MySQL database.</p>
+        <p><strong>How to fix:</strong> Go to Railway -> Click your PHP App -> Variables -> Make sure you added MYSQLHOST, MYSQLUSER, MYSQLPASSWORD, etc.</p>
+    </div>");
 }
 
-// Create Table if not exists
+// Ensure the table exists
 $tableQuery = "CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
     first_name VARCHAR(50) NOT NULL,
