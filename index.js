@@ -6,29 +6,37 @@ const bcrypt = require("bcryptjs");
 
 const app = express();
 
-// Middleware
+// ==========================================
+// FAIL-SAFE 1: Robust Middleware Setup
+// ==========================================
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(session({
     secret: process.env.SESSION_SECRET || "assignment12_secret_key",
     resave: false,
-    saveUninitialized: true
+    saveUninitialized: false, // Changed to false to save memory on Railway
+    cookie: { secure: false, maxAge: 1000 * 60 * 60 * 24 } // 24-hour sessions
 }));
 
 // Flash message middleware (Toast notifications)
 app.use((req, res, next) => {
-    res.locals.message = req.session.message;
-    delete req.session.message;
+    if (req.session) {
+        res.locals.message = req.session.message || null;
+        delete req.session.message;
+    } else {
+        res.locals.message = null;
+    }
     next();
 });
 
 function setMessage(req, type, text) {
-    req.session.message = { type, text };
+    if (req.session) {
+        req.session.message = { type, text };
+    }
 }
 
 // ==========================================
-// 1. DATABASE CONNECTION (Railway Safe)
+// 2. DATABASE CONNECTION (Railway Safe)
 // ==========================================
-// Checks both standard and alternative Railway variable names
 const db = mysql.createPool({
     host: process.env.MYSQLHOST || process.env.MYSQL_HOST || "localhost",
     user: process.env.MYSQLUSER || process.env.MYSQL_USER || "root",
@@ -37,7 +45,17 @@ const db = mysql.createPool({
     port: parseInt(process.env.MYSQLPORT || process.env.MYSQL_PORT || 3306, 10),
     waitForConnections: true,
     connectionLimit: 10,
-    queueLimit: 0
+    queueLimit: 0,
+    enableKeepAlive: true, // FAIL-SAFE: Keeps connection alive
+    keepAliveInitialDelay: 0
+});
+
+// FAIL-SAFE 2: Catch Database connection drops globally
+db.on('error', (err) => {
+    console.error('⚠️ Unexpected MySQL Pool Error:', err.message);
+    if (err.code === 'PROTOCOL_CONNECTION_LOST') {
+        console.error('Database connection was closed by Railway. It will auto-reconnect on next query.');
+    }
 });
 
 // Initialize Database Table
@@ -65,7 +83,6 @@ async function initDB(retries = 5) {
             console.log("Database Connected & Table Ready. ✅");
             return;
         } catch (err) {
-            // This will now print the EXACT reason why it failed!
             console.error(`DB Connection Error: ${err.message} | Retrying... (${retries} left)`);
             retries -= 1;
             await new Promise(res => setTimeout(res, 3000)); // wait 3 seconds
@@ -75,9 +92,9 @@ async function initDB(retries = 5) {
 }
 initDB();
 
-// Require Login Middleware
+// FAIL-SAFE 3: Safely check for logged-in user
 function requireLogin(req, res, next) {
-    if (!req.session.user) {
+    if (!req.session || !req.session.user) {
         setMessage(req, 'error', 'Please login to access your account.');
         return res.redirect("/");
     }
@@ -85,13 +102,20 @@ function requireLogin(req, res, next) {
 }
 
 // ==========================================
-// 2. ROUTING & LOGIC
+// 3. ROUTING & LOGIC
 // ==========================================
 
 // --- REGISTER ---
-app.post("/register", async (req, res) => {
-    const { first_name, last_name, email, password, contact, gender, qualification, role, state, city } = req.body;
+app.post("/register", async (req, res, next) => {
     try {
+        const { first_name, last_name, email, password, contact, gender, qualification, role, state, city } = req.body;
+        
+        // Basic validation fail-safe
+        if (!email || !password) {
+            setMessage(req, 'error', 'Email and password are required.');
+            return res.redirect("/");
+        }
+
         const hashedPassword = await bcrypt.hash(password, 10);
         const sql = `INSERT INTO users (first_name, last_name, email, password, contact, gender, qualification, role, state, city) VALUES (?,?,?,?,?,?,?,?,?,?)`;
         await db.query(sql, [first_name, last_name, email, hashedPassword, contact, gender, qualification, role, state, city]);
@@ -99,16 +123,18 @@ app.post("/register", async (req, res) => {
         setMessage(req, 'success', 'Registration successful! Please login.');
         res.redirect("/");
     } catch (err) {
-        setMessage(req, 'error', 'Email already registered or error occurred.');
+        console.error("Registration Error:", err.message);
+        setMessage(req, 'error', 'Email already registered or connection error occurred.');
         res.redirect("/");
     }
 });
 
 // --- LOGIN ---
-app.post("/login", async (req, res) => {
-    const { email, password } = req.body;
+app.post("/login", async (req, res, next) => {
     try {
+        const { email, password } = req.body;
         const [rows] = await db.query("SELECT * FROM users WHERE email = ?", [email]);
+        
         if (rows.length > 0) {
             const user = rows[0];
             const isMatch = await bcrypt.compare(password, user.password);
@@ -121,43 +147,52 @@ app.post("/login", async (req, res) => {
         setMessage(req, 'error', 'Invalid email or password.');
         res.redirect("/");
     } catch (err) {
-        setMessage(req, 'error', 'An error occurred during login.');
+        console.error("Login Error:", err.message);
+        setMessage(req, 'error', 'An error occurred during login. Please try again.');
         res.redirect("/");
     }
 });
 
 // --- LOGOUT ---
 app.get("/logout", (req, res) => {
-    req.session.destroy(() => res.redirect("/"));
+    if (req.session) {
+        req.session.destroy(() => res.redirect("/"));
+    } else {
+        res.redirect("/");
+    }
 });
 
 // --- UPDATE PROFILE ---
-app.post("/account/update", requireLogin, async (req, res) => {
-    const { first_name, last_name, contact, gender, qualification, role, state, city } = req.body;
-    const id = req.session.user.id;
-
+app.post("/account/update", requireLogin, async (req, res, next) => {
     try {
+        const { first_name, last_name, contact, gender, qualification, role, state, city } = req.body;
+        const id = req.session.user.id;
+
         const sql = `UPDATE users SET first_name=?, last_name=?, contact=?, gender=?, qualification=?, role=?, state=?, city=? WHERE id=?`;
         await db.query(sql, [first_name, last_name, contact, gender, qualification, role, state, city, id]);
         
         // Refresh session
         const [rows] = await db.query("SELECT * FROM users WHERE id = ?", [id]);
-        req.session.user = rows[0];
+        if (rows.length > 0) req.session.user = rows[0];
         
         setMessage(req, 'success', 'Profile updated successfully!');
+        res.redirect("/account");
     } catch (err) {
-        setMessage(req, 'error', 'Update failed.');
+        console.error("Update Error:", err.message);
+        setMessage(req, 'error', 'Profile update failed. Please try again.');
+        res.redirect("/account");
     }
-    res.redirect("/account");
 });
 
 // --- UPDATE PASSWORD ---
-app.post("/account/password", requireLogin, async (req, res) => {
-    const { current_password, new_password, confirm_password } = req.body;
-    const user = req.session.user;
-
+app.post("/account/password", requireLogin, async (req, res, next) => {
     try {
+        const { current_password, new_password, confirm_password } = req.body;
+        const user = req.session.user;
+
         const [rows] = await db.query("SELECT password FROM users WHERE id = ?", [user.id]);
+        if (rows.length === 0) throw new Error("User not found");
+
         const isMatch = await bcrypt.compare(current_password, rows[0].password);
 
         if (!isMatch) {
@@ -171,21 +206,22 @@ app.post("/account/password", requireLogin, async (req, res) => {
             await db.query("UPDATE users SET password=? WHERE id=?", [hashedPassword, user.id]);
             setMessage(req, 'success', 'Password changed successfully!');
         }
+        res.redirect("/account");
     } catch (err) {
-        setMessage(req, 'error', 'Password update failed.');
+        console.error("Password Update Error:", err.message);
+        setMessage(req, 'error', 'Password update failed. Please try again.');
+        res.redirect("/account");
     }
-    res.redirect("/account");
 });
 
 
 // ==========================================
-// 3. UI GENERATION (HTML + Tailwind CSS)
+// 4. UI GENERATION (HTML + Tailwind CSS)
 // ==========================================
 
-// FIXED: Added 'res' parameter here!
 function renderHTML(req, res, title, content) {
-    const user = req.session.user;
-    const message = res.locals.message; // Grabbed safely from middleware
+    const user = req.session ? req.session.user : null;
+    const message = res.locals.message;
     
     let toastHTML = '';
     if (message) {
@@ -315,7 +351,7 @@ function renderHTML(req, res, title, content) {
 
 // --- HOME PAGE ROUTE ---
 app.get("/", (req, res) => {
-    const user = req.session.user;
+    const user = req.session ? req.session.user : null;
     const content = `
         <div class="bg-gradient-to-br from-gray-900 via-gray-800 to-blue-900 text-white py-20 flex-grow flex items-center">
             <div class="max-w-4xl mx-auto text-center px-4">
@@ -328,7 +364,6 @@ app.get("/", (req, res) => {
             </div>
         </div>
     `;
-    // FIXED: Passed 'res' here
     res.send(renderHTML(req, res, "Home - Assignment 12", content));
 });
 
@@ -336,7 +371,6 @@ app.get("/", (req, res) => {
 app.get("/account", requireLogin, (req, res) => {
     const user = req.session.user;
     
-    // Helper function for dropdowns
     const sel = (val, target) => (val === target ? 'selected' : '');
     const fallback = (val) => val ? val : '<span class="text-gray-400 italic">Not provided</span>';
 
@@ -344,11 +378,11 @@ app.get("/account", requireLogin, (req, res) => {
         <div class="max-w-6xl mx-auto px-4 py-8 w-full flex-grow">
             <div class="flex flex-col md:flex-row gap-8">
                 
-                <!-- Sidebar / Profile Summary -->
+                <!-- Sidebar -->
                 <div class="w-full md:w-1/3 lg:w-1/4">
                     <div class="bg-white rounded-xl shadow-md p-6 text-center border-t-4 border-blue-500">
                         <div class="w-24 h-24 mx-auto bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-4xl font-bold mb-4 shadow-inner">
-                            ${user.first_name.charAt(0).toUpperCase()}
+                            ${(user.first_name || 'U').charAt(0).toUpperCase()}
                         </div>
                         <h2 class="text-xl font-bold text-gray-800">${user.first_name} ${user.last_name}</h2>
                         <p class="text-gray-500 text-sm mb-4">${user.email}</p>
@@ -470,9 +504,49 @@ app.get("/account", requireLogin, (req, res) => {
         </script>
     `;
     
-    // FIXED: Passed 'res' here too
     res.send(renderHTML(req, res, "My Account - Assignment 12", content));
 });
 
+// ==========================================
+// FAIL-SAFE 4 & 5: Error Handlers
+// ==========================================
+
+// 404 Handler for missing pages
+app.use((req, res) => {
+    res.status(404).send(renderHTML(req, res, "404 Not Found", `
+        <div class="flex-grow flex items-center justify-center text-center p-8">
+            <div>
+                <h1 class="text-6xl font-bold text-gray-800 mb-4">404</h1>
+                <p class="text-xl text-gray-600 mb-6">Oops! The page you're looking for doesn't exist.</p>
+                <a href="/" class="bg-blue-600 text-white px-6 py-2 rounded shadow hover:bg-blue-700">Go Back Home</a>
+            </div>
+        </div>
+    `));
+});
+
+// Global Error Handler (Catches all unexpected crashes)
+app.use((err, req, res, next) => {
+    console.error("🔥 Critical Server Error:", err.stack);
+    res.status(500).send(renderHTML(req, res, "Server Error", `
+        <div class="flex-grow flex items-center justify-center text-center p-8">
+            <div class="bg-red-50 border border-red-200 p-8 rounded-lg">
+                <i class="fa-solid fa-triangle-exclamation text-5xl text-red-500 mb-4"></i>
+                <h1 class="text-2xl font-bold text-red-800 mb-2">500 - Internal Server Error</h1>
+                <p class="text-red-600 mb-6">Something went critically wrong on our end. Please try again later.</p>
+                <a href="/" class="bg-red-600 text-white px-6 py-2 rounded shadow hover:bg-red-700">Go Back Home</a>
+            </div>
+        </div>
+    `));
+});
+
+// Graceful Shutdown
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Server running on port " + PORT));
+const server = app.listen(PORT, () => console.log("Server running on port " + PORT));
+
+process.on('SIGTERM', () => {
+    console.log('SIGTERM signal received: closing HTTP server');
+    server.close(() => {
+        console.log('HTTP server closed');
+        db.end(() => console.log('Database connections closed safely.'));
+    });
+});
