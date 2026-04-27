@@ -35,17 +35,15 @@ function setMessage(req, type, text) {
 }
 
 // ==========================================
-// JSON DATABASE ENGINE (replaces MySQL)
+// JSON DATABASE ENGINE
 // ==========================================
 async function getData() {
     try {
         const data = await fs.readFile(DATA_FILE, "utf8");
         return JSON.parse(data);
     } catch (err) {
-        // If file doesn't exist, create it and seed the dynamic content!
         const defaultData = {
             users: [],
-            // Dynamic Content required for Assignment 11
             speakers: [
                 { id: 1, name: "Dr. Alan Turing", topic: "Foundations of Computing", role: "Keynote Speaker" },
                 { id: 2, name: "Grace Hopper", topic: "The Future of Compilers", role: "Guest Speaker" },
@@ -70,7 +68,7 @@ function requireLogin(req, res, next) {
 }
 
 // ==========================================
-// ROUTING & AUTHENTICATION (Assignments 10 & 12)
+// ROUTING & AUTHENTICATION 
 // ==========================================
 
 // REGISTER
@@ -179,7 +177,7 @@ app.post("/account/password", requireLogin, async (req, res) => {
 });
 
 // ==========================================
-// FRONTEND UI GENERATOR (HTML + Tailwind)
+// FRONTEND UI GENERATOR 
 // ==========================================
 
 function renderHTML(req, res, title, content) {
@@ -212,7 +210,7 @@ function renderHTML(req, res, title, content) {
     <body class="text-gray-800 font-sans">
         ${toastHTML}
         
-        <!-- FIXED NAVIGATION MENU (Assn 11 Requirement) -->
+        <!-- FIXED NAVIGATION MENU -->
         <nav class="bg-gray-900 text-white shadow-lg fixed top-0 w-full z-50">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div class="flex justify-between h-16 flex-wrap">
@@ -247,12 +245,12 @@ function renderHTML(req, res, title, content) {
             ${content}
         </main>
 
-        <!-- FOOTER (Assn 11 Requirement) -->
+        <!-- FOOTER (Assignment Requirement) -->
         <footer class="bg-gray-900 text-gray-400 py-6 text-center text-sm mt-auto border-t border-gray-800">
             <p>Made by <span class="text-white font-semibold">Nikhil Kumar</span>, <span class="text-white">24U022005</span></p>
         </footer>
 
-        <!-- MODALS (Assn 10 Requirement) -->
+        <!-- MODALS -->
         ${!user ? `
         <!-- Login Modal -->
         <div id="loginModal" class="fixed inset-0 bg-black bg-opacity-60 hidden flex justify-center items-center z-50 px-4">
@@ -296,7 +294,6 @@ function renderHTML(req, res, title, content) {
 // ==========================================
 
 app.get("/", async (req, res) => {
-    // Read Dynamic Content from JSON (Assignment 11 Requirement)
     const data = await getData();
     const speakersHTML = data.speakers.map(s => `
         <div class="bg-white p-6 rounded-xl shadow-md border-t-4 border-blue-500 text-center transform transition hover:-translate-y-1 hover:shadow-lg">
@@ -310,17 +307,17 @@ app.get("/", async (req, res) => {
     const content = `
         <!-- HERO SECTION -->
         <section id="home" class="bg-gradient-to-br from-gray-900 via-gray-800 to-blue-900 text-white py-32 text-center px-4">
-            <h1 class="text-4xl md:text-6xl font-extrabold mb-6">Student Tech Conference</h1>
-            <p class="text-lg text-gray-300 max-w-2xl mx-auto mb-8">Dynamic Content, Smooth Scrolling, Modals, and Profile Management combined into one seamless Node.js application.</p>
+            <h1 class="text-4xl md:text-6xl font-extrabold mb-6">Student Tech Conference 2026</h1>
+            <p class="text-lg text-gray-300 max-w-2xl mx-auto mb-8">Join industry leaders and innovators for a day of inspiring talks, networking, and the future of technology.</p>
             <a href="#speakers" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transition">View Speakers <i class="fa-solid fa-arrow-down ml-2"></i></a>
         </section>
 
-        <!-- DYNAMIC CONTENT SECTION (Assn 11 Requirement) -->
+        <!-- SPEAKERS SECTION -->
         <section id="speakers" class="py-20 bg-gray-50 px-4">
             <div class="max-w-6xl mx-auto">
                 <div class="text-center mb-12">
                     <h2 class="text-3xl font-bold text-gray-800">Keynote Speakers</h2>
-                    <p class="text-gray-500 mt-2">Data dynamically loaded from backend JSON.</p>
+                    <p class="text-gray-500 mt-2">Meet the experts shaping the future of technology and innovation.</p>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
                     ${speakersHTML}
@@ -331,12 +328,12 @@ app.get("/", async (req, res) => {
         <!-- ABOUT SECTION -->
         <section id="about" class="py-20 bg-white px-4 text-center">
             <div class="max-w-3xl mx-auto">
-                <h2 class="text-3xl font-bold text-gray-800 mb-6">About This Portal</h2>
-                <p class="text-gray-600 text-lg leading-relaxed">This platform demonstrates a full implementation of Assignments 10, 11, and 12. It features a sticky navigation bar with section scrolling, dynamic content generation, robust JSON-based authentication, and a dedicated 'My Account' portal for users to manage their profiles securely.</p>
+                <h2 class="text-3xl font-bold text-gray-800 mb-6">About The Conference</h2>
+                <p class="text-gray-600 text-lg leading-relaxed">Welcome to the official portal for the Student Tech Conference. Our goal is to connect passionate students with industry pioneers. Register today to manage your conference schedule, update your attendee profile, and gain exclusive access to speaker resources and networking events.</p>
             </div>
         </section>
     `;
-    res.send(renderHTML(req, res, "Home - Conference", content));
+    res.send(renderHTML(req, res, "Home - TechConf 2026", content));
 });
 
 app.get("/account", requireLogin, (req, res) => {
@@ -346,7 +343,7 @@ app.get("/account", requireLogin, (req, res) => {
 
     const content = `
         <div class="max-w-6xl mx-auto px-4 py-12 w-full flex-grow">
-            <h2 class="text-3xl font-bold text-gray-800 mb-8">My Account Portal</h2>
+            <h2 class="text-3xl font-bold text-gray-800 mb-8">Attendee Portal</h2>
             <div class="flex flex-col md:flex-row gap-8">
                 
                 <!-- Sidebar -->
@@ -434,8 +431,8 @@ app.get("/account", requireLogin, (req, res) => {
             }
         </script>
     `;
-    res.send(renderHTML(req, res, "My Account", content));
+    res.send(renderHTML(req, res, "Attendee Portal", content));
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Final App Running on Port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Conference App Running on Port ${PORT}`));
