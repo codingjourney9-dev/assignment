@@ -28,18 +28,19 @@ function setMessage(req, type, text) {
 // ==========================================
 // 1. DATABASE CONNECTION (Railway Safe)
 // ==========================================
+// Checks both standard and alternative Railway variable names
 const db = mysql.createPool({
-    host: process.env.MYSQLHOST || "localhost",
-    user: process.env.MYSQLUSER || "root",
-    password: process.env.MYSQLPASSWORD || "",
-    database: process.env.MYSQLDATABASE || "assignment12",
-    port: parseInt(process.env.MYSQLPORT || 3306, 10),
+    host: process.env.MYSQLHOST || process.env.MYSQL_HOST || "localhost",
+    user: process.env.MYSQLUSER || process.env.MYSQL_USER || "root",
+    password: process.env.MYSQLPASSWORD || process.env.MYSQL_PASSWORD || "",
+    database: process.env.MYSQLDATABASE || process.env.MYSQL_DATABASE || "assignment12",
+    port: parseInt(process.env.MYSQLPORT || process.env.MYSQL_PORT || 3306, 10),
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
 });
 
-// Initialize Database Table (With Railway Retry Logic)
+// Initialize Database Table
 async function initDB(retries = 5) {
     while (retries > 0) {
         try {
@@ -61,15 +62,16 @@ async function initDB(retries = 5) {
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             `;
             await db.query(createTable);
-            console.log("Database Connected & Table Ready.");
+            console.log("Database Connected & Table Ready. ✅");
             return;
         } catch (err) {
-            console.error(`Database not ready yet, retrying... (${retries} left)`);
+            // This will now print the EXACT reason why it failed!
+            console.error(`DB Connection Error: ${err.message} | Retrying... (${retries} left)`);
             retries -= 1;
-            await new Promise(res => setTimeout(res, 2000)); // wait 2 seconds
+            await new Promise(res => setTimeout(res, 3000)); // wait 3 seconds
         }
     }
-    console.error("Could not initialize database. Please check Railway MySQL Variables.");
+    console.error("❌ Could not initialize database. Please check Railway MySQL Variables.");
 }
 initDB();
 
