@@ -1,5 +1,5 @@
 const express = require("express");
-const mysql = require("mysql2/promise"); // Using promise-based pooling for Railway stability
+const mysql = require("mysql2/promise");
 const bodyParser = require("body-parser");
 const session = require("express-session");
 const bcrypt = require("bcryptjs");
@@ -14,7 +14,7 @@ app.use(session({
     saveUninitialized: true
 }));
 
-// Flash message middleware (replaces ugly alerts with Toast notifications)
+// Flash message middleware (Toast notifications)
 app.use((req, res, next) => {
     res.locals.message = req.session.message;
     delete req.session.message;
@@ -39,31 +39,37 @@ const db = mysql.createPool({
     queueLimit: 0
 });
 
-// Initialize Database Table
-async function initDB() {
-    try {
-        const createTable = `
-            CREATE TABLE IF NOT EXISTS users (
-                id int NOT NULL AUTO_INCREMENT,
-                first_name varchar(50) DEFAULT NULL,
-                last_name varchar(50) DEFAULT NULL,
-                email varchar(100) NOT NULL UNIQUE,
-                password varchar(255) DEFAULT NULL,
-                contact varchar(15) DEFAULT NULL,
-                gender varchar(10) DEFAULT NULL,
-                qualification varchar(100) DEFAULT NULL,
-                role varchar(20) DEFAULT NULL,
-                state varchar(50) DEFAULT NULL,
-                city varchar(50) DEFAULT NULL,
-                created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        `;
-        await db.query(createTable);
-        console.log("Database & Table ready.");
-    } catch (err) {
-        console.error("Database initialization error:", err.message);
+// Initialize Database Table (With Railway Retry Logic)
+async function initDB(retries = 5) {
+    while (retries > 0) {
+        try {
+            const createTable = `
+                CREATE TABLE IF NOT EXISTS users (
+                    id int NOT NULL AUTO_INCREMENT,
+                    first_name varchar(50) DEFAULT NULL,
+                    last_name varchar(50) DEFAULT NULL,
+                    email varchar(100) NOT NULL UNIQUE,
+                    password varchar(255) DEFAULT NULL,
+                    contact varchar(15) DEFAULT NULL,
+                    gender varchar(10) DEFAULT NULL,
+                    qualification varchar(100) DEFAULT NULL,
+                    role varchar(20) DEFAULT NULL,
+                    state varchar(50) DEFAULT NULL,
+                    city varchar(50) DEFAULT NULL,
+                    created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            `;
+            await db.query(createTable);
+            console.log("Database Connected & Table Ready.");
+            return;
+        } catch (err) {
+            console.error(`Database not ready yet, retrying... (${retries} left)`);
+            retries -= 1;
+            await new Promise(res => setTimeout(res, 2000)); // wait 2 seconds
+        }
     }
+    console.error("Could not initialize database. Please check Railway MySQL Variables.");
 }
 initDB();
 
@@ -174,9 +180,10 @@ app.post("/account/password", requireLogin, async (req, res) => {
 // 3. UI GENERATION (HTML + Tailwind CSS)
 // ==========================================
 
-function renderHTML(req, title, content) {
+// FIXED: Added 'res' parameter here!
+function renderHTML(req, res, title, content) {
     const user = req.session.user;
-    const message = res.locals.message; // Grabbed from middleware
+    const message = res.locals.message; // Grabbed safely from middleware
     
     let toastHTML = '';
     if (message) {
@@ -319,7 +326,8 @@ app.get("/", (req, res) => {
             </div>
         </div>
     `;
-    res.send(renderHTML(req, "Home - Assignment 12", content));
+    // FIXED: Passed 'res' here
+    res.send(renderHTML(req, res, "Home - Assignment 12", content));
 });
 
 // --- MY ACCOUNT ROUTE ---
@@ -460,7 +468,8 @@ app.get("/account", requireLogin, (req, res) => {
         </script>
     `;
     
-    res.send(renderHTML(req, "My Account - Assignment 12", content));
+    // FIXED: Passed 'res' here too
+    res.send(renderHTML(req, res, "My Account - Assignment 12", content));
 });
 
 const PORT = process.env.PORT || 3000;
