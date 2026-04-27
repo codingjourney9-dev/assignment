@@ -1,7 +1,7 @@
 {
   "name": "assignment12",
   "version": "1.0.0",
-  "description": "Assignment 12 - Node.js + MySQL Web App with My Account feature",
+  "description": "Assignment 12 - JSON Based Web App",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
@@ -12,7 +12,6 @@
     "bcryptjs": "^2.4.3",
     "body-parser": "^1.20.2",
     "express": "^4.18.2",
-    "express-session": "^1.17.3",
-    "mysql2": "^3.9.2"
+    "express-session": "^1.17.3"
   }
 }

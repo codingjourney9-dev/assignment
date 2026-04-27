@@ -1,20 +1,20 @@
 const express = require("express");
-const mysql = require("mysql2/promise");
+const fs = require("fs").promises;
+const path = require("path");
 const bodyParser = require("body-parser");
 const session = require("express-session");
 const bcrypt = require("bcryptjs");
 
 const app = express();
+const DATA_FILE = path.join(__dirname, "users.json");
 
-// ==========================================
-// FAIL-SAFE 1: Robust Middleware Setup
-// ==========================================
+// Middleware
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(session({
     secret: process.env.SESSION_SECRET || "assignment12_secret_key",
     resave: false,
-    saveUninitialized: false, // Changed to false to save memory on Railway
-    cookie: { secure: false, maxAge: 1000 * 60 * 60 * 24 } // 24-hour sessions
+    saveUninitialized: false,
+    cookie: { secure: false, maxAge: 1000 * 60 * 60 * 24 }
 }));
 
 // Flash message middleware (Toast notifications)
@@ -29,70 +29,30 @@ app.use((req, res, next) => {
 });
 
 function setMessage(req, type, text) {
-    if (req.session) {
-        req.session.message = { type, text };
-    }
+    if (req.session) req.session.message = { type, text };
 }
 
 // ==========================================
-// 2. DATABASE CONNECTION (Railway Safe)
+// 1. JSON DATABASE HELPERS
 // ==========================================
-const db = mysql.createPool({
-    host: process.env.MYSQLHOST || process.env.MYSQL_HOST || "localhost",
-    user: process.env.MYSQLUSER || process.env.MYSQL_USER || "root",
-    password: process.env.MYSQLPASSWORD || process.env.MYSQL_PASSWORD || "",
-    database: process.env.MYSQLDATABASE || process.env.MYSQL_DATABASE || "assignment12",
-    port: parseInt(process.env.MYSQLPORT || process.env.MYSQL_PORT || 3306, 10),
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0,
-    enableKeepAlive: true, // FAIL-SAFE: Keeps connection alive
-    keepAliveInitialDelay: 0
-});
 
-// FAIL-SAFE 2: Catch Database connection drops globally
-db.on('error', (err) => {
-    console.error('⚠️ Unexpected MySQL Pool Error:', err.message);
-    if (err.code === 'PROTOCOL_CONNECTION_LOST') {
-        console.error('Database connection was closed by Railway. It will auto-reconnect on next query.');
+// Read users from users.json
+async function getUsers() {
+    try {
+        const data = await fs.readFile(DATA_FILE, "utf8");
+        return JSON.parse(data);
+    } catch (err) {
+        // If file doesn't exist yet, return empty array
+        return [];
     }
-});
-
-// Initialize Database Table
-async function initDB(retries = 5) {
-    while (retries > 0) {
-        try {
-            const createTable = `
-                CREATE TABLE IF NOT EXISTS users (
-                    id int NOT NULL AUTO_INCREMENT,
-                    first_name varchar(50) DEFAULT NULL,
-                    last_name varchar(50) DEFAULT NULL,
-                    email varchar(100) NOT NULL UNIQUE,
-                    password varchar(255) DEFAULT NULL,
-                    contact varchar(15) DEFAULT NULL,
-                    gender varchar(10) DEFAULT NULL,
-                    qualification varchar(100) DEFAULT NULL,
-                    role varchar(20) DEFAULT NULL,
-                    state varchar(50) DEFAULT NULL,
-                    city varchar(50) DEFAULT NULL,
-                    created_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (id)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-            `;
-            await db.query(createTable);
-            console.log("Database Connected & Table Ready. ✅");
-            return;
-        } catch (err) {
-            console.error(`DB Connection Error: ${err.message} | Retrying... (${retries} left)`);
-            retries -= 1;
-            await new Promise(res => setTimeout(res, 3000)); // wait 3 seconds
-        }
-    }
-    console.error("❌ Could not initialize database. Please check Railway MySQL Variables.");
 }
-initDB();
 
-// FAIL-SAFE 3: Safely check for logged-in user
+// Save users to users.json
+async function saveUsers(users) {
+    await fs.writeFile(DATA_FILE, JSON.stringify(users, null, 2), "utf8");
+}
+
+// Require Login Middleware
 function requireLogin(req, res, next) {
     if (!req.session || !req.session.user) {
         setMessage(req, 'error', 'Please login to access your account.');
@@ -102,53 +62,66 @@ function requireLogin(req, res, next) {
 }
 
 // ==========================================
-// 3. ROUTING & LOGIC
+// 2. ROUTING & LOGIC
 // ==========================================
 
 // --- REGISTER ---
-app.post("/register", async (req, res, next) => {
+app.post("/register", async (req, res) => {
     try {
         const { first_name, last_name, email, password, contact, gender, qualification, role, state, city } = req.body;
         
-        // Basic validation fail-safe
         if (!email || !password) {
             setMessage(req, 'error', 'Email and password are required.');
             return res.redirect("/");
         }
 
-        const hashedPassword = await bcrypt.hash(password, 10);
-        const sql = `INSERT INTO users (first_name, last_name, email, password, contact, gender, qualification, role, state, city) VALUES (?,?,?,?,?,?,?,?,?,?)`;
-        await db.query(sql, [first_name, last_name, email, hashedPassword, contact, gender, qualification, role, state, city]);
+        const users = await getUsers();
+        
+        // Check if email exists
+        if (users.some(u => u.email === email)) {
+            setMessage(req, 'error', 'Email is already registered.');
+            return res.redirect("/");
+        }
+
+        // Create new user object
+        const newUser = {
+            id: Date.now().toString(), // Generate unique ID
+            first_name, last_name, email,
+            password: await bcrypt.hash(password, 10),
+            contact, gender, qualification, role, state, city,
+            created_at: new Date().toISOString()
+        };
+
+        users.push(newUser);
+        await saveUsers(users);
         
         setMessage(req, 'success', 'Registration successful! Please login.');
         res.redirect("/");
     } catch (err) {
-        console.error("Registration Error:", err.message);
-        setMessage(req, 'error', 'Email already registered or connection error occurred.');
+        console.error("Registration Error:", err);
+        setMessage(req, 'error', 'An error occurred during registration.');
         res.redirect("/");
     }
 });
 
 // --- LOGIN ---
-app.post("/login", async (req, res, next) => {
+app.post("/login", async (req, res) => {
     try {
         const { email, password } = req.body;
-        const [rows] = await db.query("SELECT * FROM users WHERE email = ?", [email]);
+        const users = await getUsers();
         
-        if (rows.length > 0) {
-            const user = rows[0];
-            const isMatch = await bcrypt.compare(password, user.password);
-            if (isMatch) {
-                req.session.user = user;
-                setMessage(req, 'success', `Welcome back, ${user.first_name}!`);
-                return res.redirect("/");
-            }
+        const user = users.find(u => u.email === email);
+        if (user && await bcrypt.compare(password, user.password)) {
+            req.session.user = user;
+            setMessage(req, 'success', `Welcome back, ${user.first_name}!`);
+            return res.redirect("/");
         }
+        
         setMessage(req, 'error', 'Invalid email or password.');
         res.redirect("/");
     } catch (err) {
-        console.error("Login Error:", err.message);
-        setMessage(req, 'error', 'An error occurred during login. Please try again.');
+        console.error("Login Error:", err);
+        setMessage(req, 'error', 'An error occurred during login.');
         res.redirect("/");
     }
 });
@@ -163,37 +136,51 @@ app.get("/logout", (req, res) => {
 });
 
 // --- UPDATE PROFILE ---
-app.post("/account/update", requireLogin, async (req, res, next) => {
+app.post("/account/update", requireLogin, async (req, res) => {
     try {
         const { first_name, last_name, contact, gender, qualification, role, state, city } = req.body;
-        const id = req.session.user.id;
+        const userId = req.session.user.id;
 
-        const sql = `UPDATE users SET first_name=?, last_name=?, contact=?, gender=?, qualification=?, role=?, state=?, city=? WHERE id=?`;
-        await db.query(sql, [first_name, last_name, contact, gender, qualification, role, state, city, id]);
-        
-        // Refresh session
-        const [rows] = await db.query("SELECT * FROM users WHERE id = ?", [id]);
-        if (rows.length > 0) req.session.user = rows[0];
-        
-        setMessage(req, 'success', 'Profile updated successfully!');
+        const users = await getUsers();
+        const index = users.findIndex(u => u.id === userId);
+
+        if (index !== -1) {
+            // Update fields while keeping ID, Email, Password, and created_at safe
+            users[index] = { 
+                ...users[index], 
+                first_name, last_name, contact, gender, qualification, role, state, city 
+            };
+            await saveUsers(users);
+            
+            // Update Session
+            req.session.user = users[index];
+            setMessage(req, 'success', 'Profile updated successfully!');
+        } else {
+            setMessage(req, 'error', 'User not found.');
+        }
         res.redirect("/account");
     } catch (err) {
-        console.error("Update Error:", err.message);
-        setMessage(req, 'error', 'Profile update failed. Please try again.');
+        console.error("Update Error:", err);
+        setMessage(req, 'error', 'Profile update failed.');
         res.redirect("/account");
     }
 });
 
 // --- UPDATE PASSWORD ---
-app.post("/account/password", requireLogin, async (req, res, next) => {
+app.post("/account/password", requireLogin, async (req, res) => {
     try {
         const { current_password, new_password, confirm_password } = req.body;
-        const user = req.session.user;
+        const userId = req.session.user.id;
 
-        const [rows] = await db.query("SELECT password FROM users WHERE id = ?", [user.id]);
-        if (rows.length === 0) throw new Error("User not found");
+        const users = await getUsers();
+        const index = users.findIndex(u => u.id === userId);
 
-        const isMatch = await bcrypt.compare(current_password, rows[0].password);
+        if (index === -1) {
+            setMessage(req, 'error', 'User not found.');
+            return res.redirect("/account");
+        }
+
+        const isMatch = await bcrypt.compare(current_password, users[index].password);
 
         if (!isMatch) {
             setMessage(req, 'error', 'Current password is incorrect.');
@@ -202,21 +189,23 @@ app.post("/account/password", requireLogin, async (req, res, next) => {
         } else if (new_password !== confirm_password) {
             setMessage(req, 'error', 'New passwords do not match.');
         } else {
-            const hashedPassword = await bcrypt.hash(new_password, 10);
-            await db.query("UPDATE users SET password=? WHERE id=?", [hashedPassword, user.id]);
+            users[index].password = await bcrypt.hash(new_password, 10);
+            await saveUsers(users);
+            
+            req.session.user.password = users[index].password; // Update session
             setMessage(req, 'success', 'Password changed successfully!');
         }
         res.redirect("/account");
     } catch (err) {
-        console.error("Password Update Error:", err.message);
-        setMessage(req, 'error', 'Password update failed. Please try again.');
+        console.error("Password Update Error:", err);
+        setMessage(req, 'error', 'Password update failed.');
         res.redirect("/account");
     }
 });
 
 
 // ==========================================
-// 4. UI GENERATION (HTML + Tailwind CSS)
+// 3. UI GENERATION (HTML + Tailwind CSS)
 // ==========================================
 
 function renderHTML(req, res, title, content) {
@@ -247,10 +236,6 @@ function renderHTML(req, res, title, content) {
             .tab-content { display: none; }
             .tab-content.active { display: block; animation: fadeIn 0.3s ease-in-out; }
             @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
-            ::-webkit-scrollbar { width: 8px; }
-            ::-webkit-scrollbar-track { background: #f1f1f1; }
-            ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
-            ::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
         </style>
     </head>
     <body class="text-gray-800 font-sans">
@@ -356,7 +341,7 @@ app.get("/", (req, res) => {
         <div class="bg-gradient-to-br from-gray-900 via-gray-800 to-blue-900 text-white py-20 flex-grow flex items-center">
             <div class="max-w-4xl mx-auto text-center px-4">
                 <h1 class="text-4xl md:text-6xl font-extrabold mb-6">Student Information Portal</h1>
-                <p class="text-lg md:text-xl text-gray-300 mb-10 max-w-2xl mx-auto">A fully functional Node.js & MySQL web application featuring user authentication, role management, and profile customization.</p>
+                <p class="text-lg md:text-xl text-gray-300 mb-10 max-w-2xl mx-auto">A fully functional Node.js Web Application storing data seamlessly in JSON, featuring user authentication and profile customization.</p>
                 ${user ? 
                     `<a href="/account" class="inline-block bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transform transition hover:scale-105">Go to My Account <i class="fa-solid fa-arrow-right ml-2"></i></a>` : 
                     `<button onclick="document.getElementById('registerModal').classList.remove('hidden')" class="inline-block bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transform transition hover:scale-105">Get Started <i class="fa-solid fa-user-plus ml-2"></i></button>`
@@ -507,46 +492,10 @@ app.get("/account", requireLogin, (req, res) => {
     res.send(renderHTML(req, res, "My Account - Assignment 12", content));
 });
 
-// ==========================================
-// FAIL-SAFE 4 & 5: Error Handlers
-// ==========================================
+// Error Handlers
+app.use((req, res) => res.status(404).send(renderHTML(req, res, "404", "<div class='text-center p-20'><h1 class='text-4xl'>404 Not Found</h1></div>")));
+app.use((err, req, res, next) => res.status(500).send(renderHTML(req, res, "Error", "<div class='text-center p-20'><h1 class='text-4xl'>500 Error</h1></div>")));
 
-// 404 Handler for missing pages
-app.use((req, res) => {
-    res.status(404).send(renderHTML(req, res, "404 Not Found", `
-        <div class="flex-grow flex items-center justify-center text-center p-8">
-            <div>
-                <h1 class="text-6xl font-bold text-gray-800 mb-4">404</h1>
-                <p class="text-xl text-gray-600 mb-6">Oops! The page you're looking for doesn't exist.</p>
-                <a href="/" class="bg-blue-600 text-white px-6 py-2 rounded shadow hover:bg-blue-700">Go Back Home</a>
-            </div>
-        </div>
-    `));
-});
-
-// Global Error Handler (Catches all unexpected crashes)
-app.use((err, req, res, next) => {
-    console.error("🔥 Critical Server Error:", err.stack);
-    res.status(500).send(renderHTML(req, res, "Server Error", `
-        <div class="flex-grow flex items-center justify-center text-center p-8">
-            <div class="bg-red-50 border border-red-200 p-8 rounded-lg">
-                <i class="fa-solid fa-triangle-exclamation text-5xl text-red-500 mb-4"></i>
-                <h1 class="text-2xl font-bold text-red-800 mb-2">500 - Internal Server Error</h1>
-                <p class="text-red-600 mb-6">Something went critically wrong on our end. Please try again later.</p>
-                <a href="/" class="bg-red-600 text-white px-6 py-2 rounded shadow hover:bg-red-700">Go Back Home</a>
-            </div>
-        </div>
-    `));
-});
-
-// Graceful Shutdown
+// Start Server
 const PORT = process.env.PORT || 3000;
-const server = app.listen(PORT, () => console.log("Server running on port " + PORT));
-
-process.on('SIGTERM', () => {
-    console.log('SIGTERM signal received: closing HTTP server');
-    server.close(() => {
-        console.log('HTTP server closed');
-        db.end(() => console.log('Database connections closed safely.'));
-    });
-});
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT} with JSON Database`));
